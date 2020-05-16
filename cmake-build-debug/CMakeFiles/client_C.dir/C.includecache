@@ -1,0 +1,30 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/vlad/my_projects/SPOVM/client_C/main.c
+stdio.h
+-
+sys/types.h
+-
+sys/fcntl.h
+-
+sys/socket.h
+-
+netinet/in.h
+-
+netdb.h
+-
+errno.h
+-
+string.h
+-
+stdlib.h
+-
+arpa/inet.h
+-
+
