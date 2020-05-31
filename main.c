@@ -9,26 +9,32 @@
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <signal.h>
+
 
 #define BUF_SIZE 1024
 
-#define SERVICE_READY 220       // Сервисное закрытие контрольного соединения.
-#define NEED_PASSWORD 331       // Имя пользователя верен, нужен пароль.
-#define LOGIN_SUCS 230          // Пользователь вошел в систему, продолжайте. При необходимости выйдите из системы.
-#define CONTROL_CLOSE 221       // Сервисное закрытие контрольного соединения.
-#define PATHNAME_CREATE 257     // "PATHNAME" создан
-#define PASV_MODE 227           // Переход в пассивный режим (h1,h2,h3,h4,p1, p2).
-#define NO_SUCH_FILE 550        // Запрошенные меры не приняты. Файл недоступен (например, файл не найден, нет доступа).
+enum RETURN_CODE{
+    SERVICE_READY = 220,       // Сервисное закрытие контрольного соединения.
+    NEED_PASSWORD = 331,       // Имя пользователя верен, нужен пароль.
+    LOGIN_SUCS = 230,          // Пользователь вошел в систему, продолжайте. При необходимости выйдите из системы.
+    CONTROL_CLOSE = 221,       // Сервисное закрытие контрольного соединения.
+    PATHNAME_CREATE = 257,     // "PATHNAME" создан
+    PASV_MODE = 227,           // Переход в пассивный режим (h1,h2,h3,h4,p1, p2).
+    NO_SUCH_FILE = 550        // Запрошенные меры не приняты. Файл недоступен (например, файл не найден, нет доступа).
+};
 
-#define RETR 1
-#define PUT 2
-#define PWD 3
-#define LIST 4
-#define CD 5
-#define HELP 6
-#define MKD 7
-#define CDUP 9
-#define QUIT 8
+enum COMMAND{
+    RETR,
+    STOR,
+    PWD,
+    LIST,
+    CWD,
+    MKD,
+    CDUP,
+    HELP,
+    QUIT
+};
 
 struct sockaddr_in server;  // разъем
 /*
@@ -49,7 +55,8 @@ struct hostent* hent;
 char user[20];              // память для логина
 char pass[20];              // память для пароля
 int data_port;              // данные о порте
-
+char source[40];
+void memory[50];
 // Сообщение об ошибке
 void errorReport(char* err_info) {
 
@@ -176,20 +183,38 @@ int userLogin(int sockfd) {
 }
 
 // Определение команды пользователя
-int cmdToNum(char* cmd) {
+enum COMMAND cmdToNum(char* cmd) {
 
     cmd[strlen(cmd)-1] = '\0';
     if (strncmp(cmd, "retr", 4) == 0)                       { return RETR; }
-    if (strncmp(cmd, "put", 3) == 0)                        { return PUT;  }
+    if (strncmp(cmd, "stor", 4) == 0)                       { return STOR; }
     if (strcmp(cmd, "pwd")     == 0)                        { return PWD;  }
     if (strcmp(cmd, "list")    == 0)                        { return LIST; }
-    if (strncmp(cmd, "mkd", 3)  == 0)                        { return MKD;  }
-    if (strcmp(cmd, "cdup")  == 0)                        { return CDUP; }
-    if (strncmp(cmd, "cd", 2)  == 0)                        { return CD;   }
+    if (strncmp(cmd, "mkd", 3)  == 0)                       { return MKD;  }
+    if (strcmp(cmd, "cdup")  == 0)                          { return CDUP; }
+    if (strncmp(cmd, "cwd", 3)  == 0)                       { return CWD;  }
     if (strcmp(cmd, "?") == 0 || strcmp(cmd, "help") == 0)  { return HELP; }
     if (strcmp(cmd, "quit") == 0)                           { return QUIT; }
 
-    return -1;  // No command
+    return HELP;                                            // No command
+}
+
+
+int checkCommand(char* cmd){
+
+    int i = 0;
+    while (i < strlen(cmd) && cmd[i] != ' ') i++;               // проверка на то что минимум 2 слова
+    if (i == strlen(cmd)) {
+        printf("Command error: %s\n", cmd);
+        return -1;
+    }
+    while (i < strlen(cmd) && cmd[i] == ' ') i++;               // проверка на то что 2 слово есть
+    if (i == strlen(cmd)) {
+        printf("Command error: %s\n", cmd);
+        return -1;
+    }
+
+    return i;
 }
 
 // Загрузка одного файла с сервера
@@ -202,16 +227,8 @@ void cmd_get(int sockfd, char* cmd) {
     char filename[BUF_SIZE];
     char buf[BUF_SIZE];
 
-    while (i < strlen(cmd) && cmd[i] != ' ') i++;               // проверка на то что минимум 2 слова
-    if (i == strlen(cmd)) {
-        printf("Command error: %s\n", cmd);
-        return;
-    }
-    while (i < strlen(cmd) && cmd[i] == ' ') i++;               // проверка на то что 2 слово есть
-    if (i == strlen(cmd)) {
-        printf("Command error: %s\n", cmd);
-        return;
-    }
+    if ((i = checkCommand(cmd)) == -1) { return; }
+
     strncpy(filename, cmd+i, strlen(cmd+i)+1);        // заносим название фаила
                                                                 // Устанавливает режим передачи данных
     sendCommand(sockfd, "TYPE ", "I");                // E - EBCDIC, A - ASCII, I - 8-bit binary
@@ -251,52 +268,6 @@ void cmd_get(int sockfd, char* cmd) {
     fclose(dst_file);
 }
 
-// Загрузите файл на сервер
-void cmd_put(int sockfd, char* cmd) {
-    int i = 0, data_sock, bytes;
-    char filename[BUF_SIZE], buf[BUF_SIZE];
-    while (i < strlen(cmd) && cmd[i] != ' ') i++;
-    if (i == strlen(cmd)) {
-        printf("Command error: %s\n", cmd);
-        return;
-    }
-    while (i < strlen(cmd) && cmd[i] == ' ') i++;
-    if (i == strlen(cmd)) {
-        printf("Command error: %s\n", cmd);
-        return;
-    }
-    strncpy(filename, cmd+i, strlen(cmd+i)+1);
-
-    sendCommand(sockfd, "PASV", "");
-    if (getReplyCode(sockfd) != PASV_MODE) {
-        printf("Error!");
-        return;
-    }
-    FILE* src_file;
-    if ((src_file = fopen(filename, "rb")) == NULL) {
-        printf("Error!");
-        return;
-    }
-    server.sin_port = htons(data_port);
-    if ((data_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        errorReport("Create socket error!");
-    }
-    if (connect(data_sock, (struct sockaddr*)&server, sizeof(server)) < 0)
-        errorReport("Cannot connect to server!");
-    printf("Data connection successfully: %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
-    sendCommand(sockfd, "STOR ", filename);
-    if (getReplyCode(sockfd) == NO_SUCH_FILE) {
-        close(data_sock);
-        fclose(src_file);
-        return;
-    }
-    while ((bytes = fread(buf, 1, BUF_SIZE, src_file)) > 0)
-        send(data_sock, buf, bytes, 0);
-
-    close(data_sock);
-    getReplyCode(sockfd);
-    fclose(src_file);
-}
 
 // Отображение текущего каталога
 void cmd_pwd(int sockfd) {
@@ -316,16 +287,9 @@ void cmd_mkd(int sockfd, char* cmd) {
 
     int i = 0;
     char filename[BUF_SIZE];
-    while (i < strlen(cmd) && cmd[i] != ' ') i++;
-    if (i == strlen(cmd)) {
-        printf("Command error: %s\n", cmd);
-        return;
-    }
-    while (i < strlen(cmd) && cmd[i] == ' ') i++;
-    if (i == strlen(cmd)) {
-        printf("Command error: %s\n", cmd);
-        return;
-    }
+
+    if ((i = checkCommand(cmd)) == -1) { return; }
+
     strncpy(filename, cmd+i, strlen(cmd+i)+1);
 
     sendCommand(sockfd, "MKD ", filename);
@@ -368,19 +332,12 @@ void cmd_list(int sockfd) {
 
 
 // Изменение текущего каталога издалека
-void cmd_cd(int sockfd, char* cmd) {
+void cmd_cwd(int sockfd, char* cmd) {
     int i = 0;
     char buf[BUF_SIZE];
-    while (i < strlen(cmd) && cmd[i] != ' ') i++;
-    if (i == strlen(cmd)) {
-        printf("Command error: %s\n", cmd);
-        return;
-    }
-    while (i < strlen(cmd) && cmd[i] == ' ') i++;
-    if (i == strlen(cmd)) {
-        printf("Command error: %s\n", cmd);
-        return;
-    }
+
+    if ((i = checkCommand(cmd)) == -1) { return; }
+
     strncpy(buf, cmd+i, strlen(cmd+i)+1);
     sendCommand(sockfd, "CWD ", buf);
     getReplyCode(sockfd);
@@ -389,10 +346,10 @@ void cmd_cd(int sockfd, char* cmd) {
 
 void cmd_help() {
     printf(" retr \t get a file from server.\n");
-    printf(" put \t send a file to server.\n");
+    printf(" stor \t send a file to server.\n");
     printf(" pwd \t get the present directory on server.\n");
     printf(" list \t list the directory on server.\n");
-    printf(" cd \t change the directory on server.\n");
+    printf(" cwd \t change the directory on server.\n");
     printf(" ?/help\t help you know how to use the command.\n");
     printf(" quit \t quit client.\n");
 }
@@ -404,6 +361,64 @@ void cmd_quit(int sockfd) {
         printf("Logout.\n");
 }
 
+int sockfduser = 3;
+
+FILE* file;
+pthread_mutex_t mp;
+
+void term_handler(int i){
+    pthread_exit(NULL);
+}
+
+void* cmd_stor(void* data){
+
+
+        int i = 0, data_sock, bytes;
+        char filename[BUF_SIZE], buf[BUF_SIZE];
+
+        printf("%s\n", source);
+        if((i =checkCommand(source)) == -1) {
+            printf("Error command!");
+            pthread_exit(0);
+        }
+
+        strncpy(filename, source + i, strlen(source + i) + 1);
+
+        sendCommand(sockfduser, "PASV", "");
+
+        if (getReplyCode(sockfduser) != PASV_MODE) {
+            printf("Error!");
+            pthread_exit(0);
+        }
+        printf("%s\n", filename);
+        if ((file = fopen(filename, "rb")) == NULL) {
+            printf("Error open file!");
+            pthread_exit(0);
+        }
+
+        server.sin_port = htons(data_port);
+
+        if ((data_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+            errorReport("Create socket error!");
+        }
+        if (connect(data_sock, (struct sockaddr *) &server, sizeof(server)) < 0)
+            errorReport("Cannot connect to server!");
+
+        printf("Data connection successfully: %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
+
+        sendCommand(sockfduser, "STOR ", filename);
+
+        getReplyCode(sockfduser);
+
+        while ((bytes = fread(buf, 1, BUF_SIZE, file)) > 0)
+            send(data_sock, buf, bytes, 0);
+
+
+        close(data_sock);
+        getReplyCode(sockfduser);
+        fclose(file);
+
+}
 // Запуск клиента
 void run(char* ip, char* pt) {
 
@@ -414,11 +429,16 @@ void run(char* ip, char* pt) {
     while (userLogin(sockfd) != 0)                          // Bход в систему
     { printf("Please try again.\n"); }
 
-    //pthread_t id;
-    //if (pthread_create(&id,NULL, cmd_put, NULL)!=0){
-    //    errorReport("Thread create error.");
-   // }
 
+
+    if(pthread_mutex_init(&mp, NULL)!=0){
+        errorReport( "Mutex create error");
+    }
+
+
+
+
+    pthread_t id;
     int isQuit = 0;
     char buf[BUF_SIZE];
 
@@ -428,10 +448,14 @@ void run(char* ip, char* pt) {
         switch (cmdToNum(buf)) {
             case RETR:  cmd_get(sockfd, buf);                   break;
             case CDUP:  cmd_cdup(sockfd);                       break;
-            case PUT:   cmd_put(sockfd, buf);                   break;
+            case STOR:
+                strcpy(source, buf);
+              if (pthread_create(&id,NULL, cmd_stor, NULL)!=0) {
+                  errorReport("Thread create error.");
+              }                                                 break;
             case PWD:   cmd_pwd(sockfd);                        break;
             case LIST:  cmd_list(sockfd);                       break;
-            case CD:    cmd_cd(sockfd, buf);                    break;
+            case CWD:   cmd_cwd(sockfd, buf);                   break;
             case MKD:   cmd_mkd(sockfd, buf);                   break;
             case HELP:  cmd_help();                             break;
             case QUIT:  cmd_quit(sockfd);       isQuit = 1;     break;
@@ -443,7 +467,8 @@ void run(char* ip, char* pt) {
 
     close(sockfd);
 }
-
+// gcc main.c -o main -lpthread
+// ./main 13.56.207.108 2000
 int main(int argc, char* argv[]) {
     if (argc != 2 && argc != 3) {
         printf("Usage: %s <host> [<port>]\n", argv[0]);

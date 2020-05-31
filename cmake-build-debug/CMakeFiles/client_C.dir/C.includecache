@@ -29,4 +29,6 @@ arpa/inet.h
 -
 pthread.h
 -
+signal.h
+-
 
