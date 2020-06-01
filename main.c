@@ -12,7 +12,7 @@
 #include <signal.h>
 
 
-#define BUF_SIZE 1024
+#define BUF_SIZE 100
 
 enum RETURN_CODE{
     SERVICE_READY = 220,       // Сервисное закрытие контрольного соединения.
@@ -56,15 +56,35 @@ char user[20];              // память для логина
 char pass[20];              // память для пароля
 int data_port;              // данные о порте
 char source[40];
-void memory[50];
-// Сообщение об ошибке
+
+
+void errorReport(char*);                                // Сообщение об ошибке
+enum COMMAND cmdToNum(char*);
+void sendCommand(int, const char*, const char*);        // Отправка команды с параметром socket number , тегом команды и параметром команды
+int getReplyCode(int);                                  // Контрольное соединение получает ответ сервера, возвращает код ответа
+int connectToHost(char*, char*);                        // Подключение к серверу с параметрами IP-адрес и номер порта, который возвращает дескриптор, если соединение было успешным
+int userLogin(int);                                     // Вход пользователя в систему
+int checkCommand(char*);                                // Загрузка одного файла с сервера
+void enteringPassiveMode(char*);
+void retr(int, char*);
+void pwd(int);
+void cdup(int);
+void mkd(int, char*);
+void list(int);
+void cwd(int, char*);
+void help();
+void quit(int);
+void* stor(void*);
+void run(char*, char*);                           // Запуск клиента
+
+
 void errorReport(char* err_info) {
 
     printf("# %s\n", err_info);
     exit(-1);
 }
 
-// Отправка команды с параметром socket number , тегом команды и параметром команды
+
 void sendCommand(int sock_fd, const char* cmd, const char* info) {
 
     char buf[BUF_SIZE] = {0};
@@ -77,7 +97,8 @@ void sendCommand(int sock_fd, const char* cmd, const char* info) {
     { errorReport("Send command error!"); }
 }
 
-// Контрольное соединение получает ответ сервера, возвращает код ответа
+
+
 int getReplyCode(int sockfd) {
 
     int r_code, bytes;
@@ -91,25 +112,30 @@ int getReplyCode(int sockfd) {
 
     } else { return -1; }
 
-    if (r_code == PASV_MODE) {
-                                                   // пример buffer = 227 Entering passive mode (127,0,0,1,214,19)
-        char* begin = strrchr(buf, ',')+1;      // находим последнюю запятую(т.к. у нас в buffer находятся данные для пассивного мода
-        char* end = strrchr(buf, ')');
-        strncpy(nbuf, begin, end - begin);      // получаем часть нового порта (19)
-        nbuf[end-begin] = '\0';
-        data_port = atoi(nbuf);
-        buf[begin-1-buf] = '\0';                   // изменяем buffer = 227 Entering passive mode (127,0,0,1,214
-        end = begin - 1;
-        begin = strrchr(buf, ',')+1;            // теперб в begin будет хрониться другая часть порта (214)
-        strncpy(nbuf, begin, end - begin);
-        nbuf[end-begin] = '\0';
-        data_port += 256 * atoi(nbuf);
-    }
+
+    if (r_code == PASV_MODE) { enteringPassiveMode(buf); }
 
     return r_code;
 }
 
-// Подключение к серверу с параметрами IP-адрес и номер порта, который возвращает дескриптор, если соединение было успешным
+void enteringPassiveMode(char* command){
+
+    char buffer[4];
+
+    // пример buffer = 227 Entering passive mode (127,0,0,1,214,19)
+    char* begin = strrchr(command, ',')+1;      // находим последнюю запятую(т.к. у нас в buffer находятся данные для пассивного мода
+    char* end = strrchr(command, ')');
+    strncpy(buffer, begin, end - begin);      // получаем часть нового порта (19)
+    buffer[end-begin] = '\0';
+    data_port = atoi(buffer);
+    buffer[begin-1-buffer] = '\0';// изменяем buffer = 227 Entering passive mode (127,0,0,1,214
+    end = begin - 1;
+    begin = strrchr(command, ',')+1;// теперб в begin будет хрониться другая часть порта (214)
+    strncpy(buffer, begin, end - begin);
+    buffer[end-begin] = '\0';
+    data_port += 256 * atoi(buffer);
+}
+
 int connectToHost(char* ip, char* pt) {
 
     int sockfd;
@@ -142,7 +168,7 @@ int connectToHost(char* ip, char* pt) {
 
 
 
-// Вход пользователя в систему
+
 int userLogin(int sockfd) {
 
     memset(user, 0, sizeof(user));
@@ -182,22 +208,7 @@ int userLogin(int sockfd) {
     }
 }
 
-// Определение команды пользователя
-enum COMMAND cmdToNum(char* cmd) {
 
-    cmd[strlen(cmd)-1] = '\0';
-    if (strncmp(cmd, "retr", 4) == 0)                       { return RETR; }
-    if (strncmp(cmd, "stor", 4) == 0)                       { return STOR; }
-    if (strcmp(cmd, "pwd")     == 0)                        { return PWD;  }
-    if (strcmp(cmd, "list")    == 0)                        { return LIST; }
-    if (strncmp(cmd, "mkd", 3)  == 0)                       { return MKD;  }
-    if (strcmp(cmd, "cdup")  == 0)                          { return CDUP; }
-    if (strncmp(cmd, "cwd", 3)  == 0)                       { return CWD;  }
-    if (strcmp(cmd, "?") == 0 || strcmp(cmd, "help") == 0)  { return HELP; }
-    if (strcmp(cmd, "quit") == 0)                           { return QUIT; }
-
-    return HELP;                                            // No command
-}
 
 
 int checkCommand(char* cmd){
@@ -217,8 +228,8 @@ int checkCommand(char* cmd){
     return i;
 }
 
-// Загрузка одного файла с сервера
-void cmd_get(int sockfd, char* cmd) {
+
+void retr(int sockfd, char* cmd) {
 
     int i = 0;
     int data_sock;
@@ -270,20 +281,20 @@ void cmd_get(int sockfd, char* cmd) {
 
 
 // Отображение текущего каталога
-void cmd_pwd(int sockfd) {
+void pwd(int sockfd) {
     sendCommand(sockfd, "PWD", "");
     if (getReplyCode(sockfd) != PATHNAME_CREATE)
         errorReport("Wrong reply for PWD!");
 }
 
-void cmd_cdup(int sockfd){
+void cdup(int sockfd){
 
     sendCommand(sockfd, "CDUP", "");
     if (getReplyCode(sockfd) != 200)
         errorReport("Wrong reply for PWD!");
 }
 
-void cmd_mkd(int sockfd, char* cmd) {
+void mkd(int sockfd, char* cmd) {
 
     int i = 0;
     char filename[BUF_SIZE];
@@ -297,7 +308,7 @@ void cmd_mkd(int sockfd, char* cmd) {
 }
 
 // Список удаленных текущих каталогов
-void cmd_list(int sockfd) {
+void list(int sockfd) {
 
     int data_sock, bytes;
     char buf[BUF_SIZE] = {0};
@@ -316,7 +327,7 @@ void cmd_list(int sockfd) {
         { errorReport("Cannot connect to server!"); }
     printf("Data connection successfully: %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
 
-    sendCommand(sockfd, "LIST ", "-al");
+    sendCommand(sockfd, "LIST ", "");
     getReplyCode(sockfd);
     printf("\n");
                                                         // Подключение к данным получает данные, передаваемые сервером
@@ -332,7 +343,7 @@ void cmd_list(int sockfd) {
 
 
 // Изменение текущего каталога издалека
-void cmd_cwd(int sockfd, char* cmd) {
+void cwd(int sockfd, char* cmd) {
     int i = 0;
     char buf[BUF_SIZE];
 
@@ -344,7 +355,7 @@ void cmd_cwd(int sockfd, char* cmd) {
 }
 
 
-void cmd_help() {
+void help() {
     printf(" retr \t get a file from server.\n");
     printf(" stor \t send a file to server.\n");
     printf(" pwd \t get the present directory on server.\n");
@@ -355,7 +366,7 @@ void cmd_help() {
 }
 
 // выход
-void cmd_quit(int sockfd) {
+void quit(int sockfd) {
     sendCommand(sockfd, "QUIT", "");
     if (getReplyCode(sockfd) == CONTROL_CLOSE)
         printf("Logout.\n");
@@ -370,14 +381,14 @@ void term_handler(int i){
     pthread_exit(NULL);
 }
 
-void* cmd_stor(void* data){
+void* stor(void* data){
 
 
         int i = 0, data_sock, bytes;
         char filename[BUF_SIZE], buf[BUF_SIZE];
 
         printf("%s\n", source);
-        if((i =checkCommand(source)) == -1) {
+        if((i = checkCommand(source)) == -1) {
             printf("Error command!");
             pthread_exit(0);
         }
@@ -386,15 +397,18 @@ void* cmd_stor(void* data){
 
         sendCommand(sockfduser, "PASV", "");
 
+
         if (getReplyCode(sockfduser) != PASV_MODE) {
             printf("Error!");
             pthread_exit(0);
         }
-        printf("%s\n", filename);
+
         if ((file = fopen(filename, "rb")) == NULL) {
             printf("Error open file!");
             pthread_exit(0);
         }
+
+
 
         server.sin_port = htons(data_port);
 
@@ -416,10 +430,13 @@ void* cmd_stor(void* data){
 
         close(data_sock);
         getReplyCode(sockfduser);
+        printf("[Client command] ");
         fclose(file);
 
+
+        pthread_exit(0);
 }
-// Запуск клиента
+
 void run(char* ip, char* pt) {
 
     int  sockfd = connectToHost(ip, pt);
@@ -429,15 +446,6 @@ void run(char* ip, char* pt) {
     while (userLogin(sockfd) != 0)                          // Bход в систему
     { printf("Please try again.\n"); }
 
-
-
-    if(pthread_mutex_init(&mp, NULL)!=0){
-        errorReport( "Mutex create error");
-    }
-
-
-
-
     pthread_t id;
     int isQuit = 0;
     char buf[BUF_SIZE];
@@ -446,36 +454,50 @@ void run(char* ip, char* pt) {
         printf("[Client command] ");
         fgets(buf, sizeof(buf), stdin);
         switch (cmdToNum(buf)) {
-            case RETR:  cmd_get(sockfd, buf);                   break;
-            case CDUP:  cmd_cdup(sockfd);                       break;
+            case RETR:  retr(sockfd, buf);                   break;
+            case CDUP:  cdup(sockfd);                        break;
             case STOR:
                 strcpy(source, buf);
-              if (pthread_create(&id,NULL, cmd_stor, NULL)!=0) {
+                sockfduser = sockfd;
+              if (pthread_create(&id,NULL, stor, NULL)!=0) {
                   errorReport("Thread create error.");
-              }                                                 break;
-            case PWD:   cmd_pwd(sockfd);                        break;
-            case LIST:  cmd_list(sockfd);                       break;
-            case CWD:   cmd_cwd(sockfd, buf);                   break;
-            case MKD:   cmd_mkd(sockfd, buf);                   break;
-            case HELP:  cmd_help();                             break;
-            case QUIT:  cmd_quit(sockfd);       isQuit = 1;     break;
-            default:
-                cmd_help();
-                break;
+              }                                             break;
+            case PWD:   pwd(sockfd);                        break;
+            case LIST:  list(sockfd);                       break;
+            case CWD:   cwd(sockfd, buf);                   break;
+            case MKD:   mkd(sockfd, buf);                   break;
+            case HELP:  help();                             break;
+            case QUIT:  quit(sockfd);       isQuit = 1;     break;
+            default:    help();                             break;
         }
     }
 
     close(sockfd);
 }
+
+
+enum COMMAND cmdToNum(char* cmd) {
+
+    cmd[strlen(cmd)-1] = '\0';
+
+    if (strncmp(cmd, "retr", 4) == 0)                            { return RETR; }
+    else if (strncmp(cmd, "stor", 4) == 0)                       { return STOR; }
+    else if (strcmp(cmd, "pwd")     == 0)                        { return PWD;  }
+    else if (strcmp(cmd, "list")    == 0)                        { return LIST; }
+    else if (strncmp(cmd, "mkd", 3)  == 0)                       { return MKD;  }
+    else if (strcmp(cmd, "cdup")  == 0)                          { return CDUP; }
+    else if (strncmp(cmd, "cwd", 3)  == 0)                       { return CWD;  }
+    else if (strcmp(cmd, "?") == 0 || strcmp(cmd, "help") == 0)  { return HELP; }
+    else if (strcmp(cmd, "quit") == 0)                           { return QUIT; }
+    else return HELP;
+}
+
 // gcc main.c -o main -lpthread
 // ./main 13.56.207.108 2000
 int main(int argc, char* argv[]) {
     if (argc != 2 && argc != 3) {
         printf("Usage: %s <host> [<port>]\n", argv[0]);
         exit(-1);
-    }
-    else if (argc == 2)
-        run(argv[1], "21");
-    else
-        run(argv[1], argv[2]);
+    } else if (argc == 2) { run(argv[1], "21"); }
+    else { run(argv[1], argv[2]); }
 }

@@ -13,10 +13,8 @@
   <component name="ChangeListManager">
     <list default="true" id="7624d027-5771-40f0-99e1-19eb57e55b01" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/client_C.dir/C.includecache" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/client_C.dir/C.includecache" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/client_C.dir/main.c.o" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/CMakeFiles/client_C.dir/main.c.o" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/client_C" beforeDir="false" afterPath="$PROJECT_DIR$/cmake-build-debug/client_C" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmake-build-debug/maks.mp3" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Poyasnitelnaya_zapiska.docx" beforeDir="false" afterPath="$PROJECT_DIR$/Poyasnitelnaya_zapiska.docx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main" beforeDir="false" afterPath="$PROJECT_DIR$/main" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main.c" beforeDir="false" afterPath="$PROJECT_DIR$/main.c" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -69,6 +67,7 @@
       <workItem from="1590822705457" duration="4690000" />
       <workItem from="1590828379013" duration="2049000" />
       <workItem from="1590832818316" duration="18292000" />
+      <workItem from="1590919436273" duration="16496000" />
     </task>
     <servers />
   </component>
