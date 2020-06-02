@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <signal.h>
+#include <unistd.h>
 
 
 #define BUF_SIZE 100
@@ -21,7 +22,7 @@ enum RETURN_CODE{
     CONTROL_CLOSE = 221,       // Сервисное закрытие контрольного соединения.
     PATHNAME_CREATE = 257,     // "PATHNAME" создан
     PASV_MODE = 227,           // Переход в пассивный режим (h1,h2,h3,h4,p1, p2).
-    NO_SUCH_FILE = 550        // Запрошенные меры не приняты. Файл недоступен (например, файл не найден, нет доступа).
+    NO_SUCH_FILE = 550         // Запрошенные меры не приняты. Файл недоступен (например, файл не найден, нет доступа).
 };
 
 enum COMMAND{
@@ -95,7 +96,7 @@ void sendCommand(int sock_fd, const char* cmd, const char* info) {
 
     if (send(sock_fd, buf, strlen(buf), 0) < 0)
     { errorReport("Send command error!"); }
-}
+}= 220,
 
 
 
@@ -114,6 +115,7 @@ int getReplyCode(int sockfd) {
 
 
     if (r_code == PASV_MODE) { enteringPassiveMode(buf); }
+
 
     return r_code;
 }
@@ -165,7 +167,25 @@ int connectToHost(char* ip, char* pt) {
     return sockfd;
 }
 
+int pasv(int sockfd, int data_sock){
 
+
+    sendCommand(sockfd, "PASV", "");
+    if (getReplyCode(sockfd) != PASV_MODE) {
+        printf("Error!");
+    }
+
+    server.sin_port = htons(data_port);
+    if ((data_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        errorReport("Create socket error!");
+    }
+    if (connect(data_sock, (struct sockaddr*)&server, sizeof(server)) < 0)
+        errorReport("Cannot connect to server!");
+    printf("Data connection successfully: %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
+
+    return data_sock;
+
+}
 
 
 
@@ -232,7 +252,7 @@ int checkCommand(char* cmd){
 void retr(int sockfd, char* cmd) {
 
     int i = 0;
-    int data_sock;
+    int data_sock = 0;
     int bytes;
 
     char filename[BUF_SIZE];
@@ -245,20 +265,10 @@ void retr(int sockfd, char* cmd) {
     sendCommand(sockfd, "TYPE ", "I");                // E - EBCDIC, A - ASCII, I - 8-bit binary
     getReplyCode(sockfd);
 
-    sendCommand(sockfd, "PASV", "");
-    if (getReplyCode(sockfd) != PASV_MODE) {
-        printf("Error!\n");
-        return;
-    }
 
-    server.sin_port = htons(data_port);
-    if ((data_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-    { errorReport("Create socket error!"); }
+    data_sock = pasv(sockfd, data_sock);
 
-    if (connect(data_sock, (struct sockaddr*)&server, sizeof(server)) < 0)
-    { errorReport("Cannot connect to server!"); }
 
-    printf("Data connection successfully: %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
     sendCommand(sockfd, "RETR ", filename);                             // команда извлечения копий файла
     if (getReplyCode(sockfd) == NO_SUCH_FILE) {                              // не можем получить файл
         close(sockfd);                                                       // закрываем дескриптор
@@ -276,6 +286,7 @@ void retr(int sockfd, char* cmd) {
 
     close(data_sock);
     getReplyCode(sockfd);
+
     fclose(dst_file);
 }
 
@@ -305,27 +316,17 @@ void mkd(int sockfd, char* cmd) {
 
     sendCommand(sockfd, "MKD ", filename);
 
+    getReplyCode(sockfd);
+
 }
 
 // Список удаленных текущих каталогов
 void list(int sockfd) {
 
-    int data_sock, bytes;
+    int data_sock = 0, bytes;
     char buf[BUF_SIZE] = {0};
-    sendCommand(sockfd, "PASV", "");
-    if (getReplyCode(sockfd) != PASV_MODE) {
-        printf("Error!");
-        return;
-    }
-    server.sin_port = htons(data_port);
-    if ((data_sock = socket(AF_INET,
-            SOCK_STREAM,                           // SOCK_STREAM (надёжная потокоориентированная служба (сервис) или потоковый сокет)
-            0)) == 0)                           // протокол однозначно определяется по домену и типу сокета
-        { errorReport("Create socket error!"); }
 
-    if (connect(data_sock, (struct sockaddr*)&server, sizeof(server)) < 0)
-        { errorReport("Cannot connect to server!"); }
-    printf("Data connection successfully: %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
+    data_sock = pasv(sockfd, data_sock);
 
     sendCommand(sockfd, "LIST ", "");
     getReplyCode(sockfd);
@@ -375,66 +376,41 @@ void quit(int sockfd) {
 int sockfduser = 3;
 
 FILE* file;
-pthread_mutex_t mp;
 
-void term_handler(int i){
-    pthread_exit(NULL);
-}
 
 void* stor(void* data){
 
+    int i = 0, data_sock, bytes;
+    char filename[BUF_SIZE], buf[BUF_SIZE];
 
-        int i = 0, data_sock, bytes;
-        char filename[BUF_SIZE], buf[BUF_SIZE];
+    if ((i = checkCommand(source)) == -1) { printf("error command line");}
 
-        printf("%s\n", source);
-        if((i = checkCommand(source)) == -1) {
-            printf("Error command!");
-            pthread_exit(0);
-        }
-
-        strncpy(filename, source + i, strlen(source + i) + 1);
-
-        sendCommand(sockfduser, "PASV", "");
+    strncpy(filename, source+i, strlen(source+i)+1);
 
 
-        if (getReplyCode(sockfduser) != PASV_MODE) {
-            printf("Error!");
-            pthread_exit(0);
-        }
+    FILE* src_file;
+    if ((src_file = fopen(filename, "rb")) == NULL) {
+        printf("Error!");
 
-        if ((file = fopen(filename, "rb")) == NULL) {
-            printf("Error open file!");
-            pthread_exit(0);
-        }
+    }
 
+    data_sock = pasv(sockfduser, data_sock);
 
-
-        server.sin_port = htons(data_port);
-
-        if ((data_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-            errorReport("Create socket error!");
-        }
-        if (connect(data_sock, (struct sockaddr *) &server, sizeof(server)) < 0)
-            errorReport("Cannot connect to server!");
-
-        printf("Data connection successfully: %s:%d\n", inet_ntoa(server.sin_addr), ntohs(server.sin_port));
-
-        sendCommand(sockfduser, "STOR ", filename);
-
-        getReplyCode(sockfduser);
-
-        while ((bytes = fread(buf, 1, BUF_SIZE, file)) > 0)
-            send(data_sock, buf, bytes, 0);
-
-
+    sendCommand(sockfduser, "STOR ", filename);
+    if (getReplyCode(sockfduser) == NO_SUCH_FILE) {
         close(data_sock);
-        getReplyCode(sockfduser);
-        printf("[Client command] ");
-        fclose(file);
-
-
+        fclose(src_file);
         pthread_exit(0);
+
+    }
+    while ((bytes = fread(buf, 1, BUF_SIZE, src_file)) > 0)
+        send(data_sock, buf, bytes, 0);
+
+    close(data_sock);
+    getReplyCode(sockfduser);
+    printf("[Client command] ");
+    fclose(src_file);
+    pthread_exit(0);
 }
 
 void run(char* ip, char* pt) {
@@ -443,7 +419,7 @@ void run(char* ip, char* pt) {
     if (getReplyCode(sockfd) != SERVICE_READY)              // (SERVICE_READY == 220)
     { errorReport("Service Connect Error!"); }
 
-    while (userLogin(sockfd) != 0)                          // Bход в систему
+    while (userLogin(sockfd) != 0)                     // Bход в систему
     { printf("Please try again.\n"); }
 
     pthread_t id;
@@ -458,10 +434,9 @@ void run(char* ip, char* pt) {
             case CDUP:  cdup(sockfd);                        break;
             case STOR:
                 strcpy(source, buf);
-                sockfduser = sockfd;
               if (pthread_create(&id,NULL, stor, NULL)!=0) {
-                  errorReport("Thread create error.");
-              }                                             break;
+                 errorReport("Thread create error.");
+             }                                              break;
             case PWD:   pwd(sockfd);                        break;
             case LIST:  list(sockfd);                       break;
             case CWD:   cwd(sockfd, buf);                   break;
@@ -493,7 +468,8 @@ enum COMMAND cmdToNum(char* cmd) {
 }
 
 // gcc main.c -o main -lpthread
-// ./main 13.56.207.108 2000
+// ./main 13.56.207.108 2000       - grinia
+// ./main 127.0.0.1 5000           - local
 int main(int argc, char* argv[]) {
     if (argc != 2 && argc != 3) {
         printf("Usage: %s <host> [<port>]\n", argv[0]);
